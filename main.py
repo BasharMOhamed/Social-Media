@@ -289,8 +289,7 @@ class NetworkApp:
 
     def show_metrics(self):
         print(self.directness_var.get())
-        if self.G is None:
-            if self.nodes_df is not None and self.edges_df is not None:
+        if self.nodes_df is not None and self.edges_df is not None:
                 if self.directness_var.get() == "Directed":
                     self.G = nx.DiGraph()
                 else:
@@ -301,9 +300,9 @@ class NetworkApp:
                     self.G.add_node(row['ID'])
                 for _, row in self.edges_df.iterrows():
                     self.G.add_edge(row['Source'], row['Target'])
-            else:
-                messagebox.showerror("Error", "Graph not created yet.")
-                return
+        else:
+            messagebox.showerror("Error", "Graph not created yet.")
+            return
 
         num_nodes = self.G.number_of_nodes()
         num_edges = self.G.number_of_edges()
@@ -346,7 +345,6 @@ class NetworkApp:
         # Calculate density
         density = nx.density(self.G)
         metrics.append(f"Density: {density:.4f}")
-        self.G = None
 
         # Show metrics in messagebox
         messagebox.showinfo("Graph Metrics", "\n".join(metrics))

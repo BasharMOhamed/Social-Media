@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 import networkx as nx
 import pandas as pd
-
+from CentralityMeasures import calculate_centrality,draw_filtered_graph
 
 class NetworkApp:
     def __init__(self, root):
@@ -128,17 +128,19 @@ class NetworkApp:
         # Third Row: Buttons
         button_frame = ttk.Frame(centrality_frame)
         button_frame.pack(fill=tk.X)
+        filtered_G = self.G
 
         tk.Button(
             button_frame,
             text="Draw Filtered Graph",
-            command=""
+            command=lambda: draw_filtered_graph(self.minCentrality, self.maxCentrality, filtered_G,
+                                                self.centralityVar.get(), self.output_dir)
         ).pack(side=tk.LEFT, padx=2)
 
         tk.Button(
             button_frame,
             text="Calculate Centrality",
-            command=""
+            command=lambda: calculate_centrality(self.centralityVar.get(), filtered_G)
         ).pack(side=tk.LEFT, padx=2)
 
         tk.Button(

@@ -2,7 +2,7 @@ import networkx as nx
 import csv
 
 centralities = []
-
+filtered_G = None
 
 def calculate_centrality(G, path):
     global centralities
@@ -24,21 +24,21 @@ def calculate_centrality(G, path):
 
 
 def draw_filtered_graph(min_val, max_val, G, centrality_type):
+    global filtered_G
     filtered_G = G
-
     if centrality_type == 'Degree' and centralities != []:
         for subArray in centralities:
-            if min_val > subArray[1] > max_val:
+            if min_val > subArray[1] or subArray[1] > max_val:
                 filtered_G.remove_node(subArray[0])
 
     if centrality_type == 'Closeness' and centralities != []:
         for subArray in centralities:
-            if min_val > subArray[2] > max_val:
+            if min_val > subArray[2] or subArray[2] > max_val:
                 filtered_G.remove_node(subArray[0])
 
-    if centrality_type == 'Betwenness' and centralities != []:
+    if centrality_type == 'Betweenness' and centralities != []:
         for subArray in centralities:
-            if min_val > subArray[3] > max_val:
+            if min_val > subArray[3] or subArray[3] > max_val:
                 filtered_G.remove_node(subArray[0])
 
 

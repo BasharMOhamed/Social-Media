@@ -1,13 +1,15 @@
+import os
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 import networkx as nx
 import pandas as pd
-from CentralityMeasures import calculate_centrality,draw_filtered_graph
+from CentralityMeasures import calculate_centrality, draw_filtered_graph
 
 class NetworkApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Mini Social Networks Analysis Tool")
+        self.output_dir = os.path.join(os.getcwd(),'centrality.csv')
 
         # Graph
         self.G = None
@@ -128,19 +130,17 @@ class NetworkApp:
         # Third Row: Buttons
         button_frame = ttk.Frame(centrality_frame)
         button_frame.pack(fill=tk.X)
-        filtered_G = self.G
 
         tk.Button(
             button_frame,
             text="Draw Filtered Graph",
-            command=lambda: draw_filtered_graph(self.minCentrality, self.maxCentrality, filtered_G,
-                                                self.centralityVar.get(), self.output_dir)
+            command=lambda: draw_filtered_graph(self.minCentrality.get(), self.maxCentrality.get(), self.G, self.centralityVar.get())
         ).pack(side=tk.LEFT, padx=2)
 
         tk.Button(
             button_frame,
             text="Calculate Centrality",
-            command=lambda: calculate_centrality(self.centralityVar.get(), filtered_G)
+            command=lambda: calculate_centrality(self.G, self.output_dir)
         ).pack(side=tk.LEFT, padx=2)
 
         tk.Button(

@@ -4,6 +4,8 @@ from tkinter import filedialog, messagebox, ttk
 import networkx as nx
 import pandas as pd
 from CentralityMeasures import calculate_centrality, draw_filtered_graph
+import community as community_louvain
+from networkx.algorithms.community import girvan_newman
 
 class NetworkApp:
     def __init__(self, root):
@@ -156,19 +158,22 @@ class NetworkApp:
 
         # Centrality DropMenu
         tk.Label(clustering_frame, text="Clutering Algo:").grid(row=0, column=0, padx= 5)
-        self.clusteringVar = tk.StringVar(value="Grivan-Newman")
+        self.clusteringVar = tk.StringVar(value="Girvan-Newman")
+
         self.clustering_dropdown = ttk.Combobox(clustering_frame, textvariable=self.clusteringVar, width=25)
         self.clustering_dropdown['values'] = (
-            'Grivan-Newman',
+            'Girvan-Newman',
+            'Louvain'
         )
+
         self.clustering_dropdown.grid(column=1, row=0 , padx=5)
 
-        tk.Button(clustering_frame, text="Draw Clustered Graph", command="").grid(row=0,column=2, padx=5, pady=10)
+        tk.Button(clustering_frame, text="Draw Clustered Graph", command=self.draw_clustered_graph).grid(row=0,column=2, padx=5, pady=10)
 
 
         tk.Button(clustering_frame, text="Calculate NMI", command="").grid(row=1,column=0, padx=5, pady=10)
-        tk.Button(clustering_frame, text="Calculate Conductance", command="").grid(row=1,column=1, padx=5, pady=10)
-        tk.Button(clustering_frame, text="Calculate Modularity", command="").grid(row=1,column=2, padx=5, pady=10)
+        # tk.Button(clustering_frame, text="Calculate Conductance", command="").grid(row=1,column=1, padx=5, pady=10)
+        tk.Button(clustering_frame, text="Compare Algorithms", command=self.compare_algorithms).grid(row=1,column=2, padx=5, pady=10)
 
 ####################################################################################################################################
 
@@ -356,6 +361,87 @@ class NetworkApp:
         if dir_path:
             self.output_dir = dir_path
             self.status_label.config(text=f"Output directory: {dir_path}", fg="green")
+
+    def draw_clustered_graph(self):
+        if self.G is None:
+            messagebox.showerror("Error", "Graph not created yet.")
+            return
+        algo = self.clusteringVar.get().strip() or "Girvan-Newman"
+
+        partition = {}
+
+        if algo == "Girvan-Newman":
+            from networkx.algorithms.community import girvan_newman
+            comp = girvan_newman(self.G)
+            limited = tuple(sorted(c) for c in next(comp))
+            for idx, cluster in enumerate(limited):
+                for node in cluster:
+                    partition[node] = idx
+
+        elif algo == "Louvain":
+            partition = community_louvain.best_partition(self.G)
+
+        else:
+            messagebox.showerror("Error", f"Unsupported algorithm: {algo}")
+            return
+
+        # Draw graph with node colors based on clusters
+        import matplotlib.pyplot as plt
+
+        plt.figure(figsize=(8, 6))
+        pos = nx.spring_layout(self.G)
+        cmap = plt.get_cmap('tab20')
+
+        for node in self.G.nodes():
+            nx.draw_networkx_nodes(
+                self.G,
+                pos,
+                nodelist=[node],
+                node_color=[cmap(partition[node] % 20)],
+                label=f"Cluster {partition[node]}"
+            )
+        nx.draw_networkx_edges(self.G, pos, alpha=0.5)
+        if self.show_labels.get():
+            nx.draw_networkx_labels(self.G, pos, font_size=self.label_size.get(), font_color=self.label_color.get())
+
+        plt.title(f"{algo} Clustering")
+        plt.axis('off')
+        plt.show()
+
+    def compare_algorithms(self):
+        if self.G is None:
+            messagebox.showerror("Error", "Graph not created yet.")
+            return
+
+        comparison = []
+
+        # --- Girvan-Newman ---
+        comp = girvan_newman(self.G)
+        communities_gn = tuple(sorted(c) for c in next(comp))
+        comparison.append(
+            f"Girvan-Newman:\n"
+            f"  Communities: {len(communities_gn)}\n"
+            f"  Modularity: \n"
+            f"  Conductance: "
+        )
+
+        # --- Louvain ---
+        partition_louvain = community_louvain.best_partition(self.G)
+        communities_lv = {}
+        for node, group in partition_louvain.items():
+            communities_lv.setdefault(group, []).append(node)
+        communities_lv_list = list(communities_lv.values())
+
+
+
+        comparison.append(
+            f"Louvain:\n"
+            f"  Communities: {len(communities_lv_list)}\n"
+            f"  Modularity: \n"
+            f"  Conductance: "
+        )
+
+        messagebox.showinfo("Community Detection Comparison", "\n\n".join(comparison))
 
 
 if __name__ == "__main__":

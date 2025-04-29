@@ -3,7 +3,9 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 import networkx as nx
 import pandas as pd
-from CentralityMeasures import calculate_centrality, draw_filtered_graph
+import matplotlib.pyplot as plt
+from matplotlib.colors import Normalize
+from CentralityMeasures import calculate_centrality, draw_filtered_graph, filtered_G, centralities
 
 class NetworkApp:
     def __init__(self, root):
@@ -33,7 +35,7 @@ class NetworkApp:
 
         tk.Button(button_frame, text="Load Nodes CSV", command=self.load_nodes).pack(side=tk.LEFT, padx=5)
         tk.Button(button_frame, text="Load Edges CSV", command=self.load_edges).pack(side=tk.LEFT, padx=5)
-        tk.Button(button_frame, text="Draw Graph", command="").pack(side=tk.LEFT, padx=5)
+        tk.Button(button_frame, text="Draw Graph", command=self.draw_graph).pack(side=tk.LEFT, padx=5)
 
         # Status bar at bottom
         self.status_label = tk.Label(file_frame, text="Ready", fg="blue", anchor="w")
@@ -61,7 +63,7 @@ class NetworkApp:
         self.layout_menu = ttk.Combobox(
             prop_frame,
             textvariable=self.layout_var,
-            values=("Fruchterman-Reingold"),
+            values=("Simple","Fruchterman-Reingold","Tree (Hierarchical)","Radial Layout"),
             state="readonly",
             width=20
         )
@@ -134,13 +136,15 @@ class NetworkApp:
         tk.Button(
             button_frame,
             text="Draw Filtered Graph",
-            command=lambda: draw_filtered_graph(self.minCentrality.get(), self.maxCentrality.get(), self.G, self.centralityVar.get())
+            command=self.draw_centralities,
+            # command=lambda: draw_filtered_graph(self.minCentrality.get(), self.maxCentrality.get(), self.G, self.centralityVar.get())
         ).pack(side=tk.LEFT, padx=2)
 
         tk.Button(
             button_frame,
             text="Calculate Centrality",
-            command=lambda: calculate_centrality(self.G, self.output_dir)
+            command= self.calculate_centrality_safe()
+            # command=lambda: calculate_centrality(self.G, self.output_dir)
         ).pack(side=tk.LEFT, padx=2)
 
         tk.Button(
@@ -174,24 +178,7 @@ class NetworkApp:
 
         link_analysis_frame = tk.LabelFrame(self.root, text="Link Analysis", padx=5, pady=5)
         link_analysis_frame.pack(padx=10, pady=5, fill=tk.X)
-        tk.Button(link_analysis_frame,width=30, text="Link analysis", command=print("Link analysis")).grid(row=1,column=2, padx=5, pady=10)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+        tk.Button(link_analysis_frame,width=30, text="Calculate PageRank", command=self.calculate_pagerank).grid(row=1,column=2, padx=5, pady=10)
 
 
         #############################################################################################################
@@ -288,6 +275,212 @@ class NetworkApp:
         if file_path:
             self.edges_df = pd.read_csv(file_path)
             self.status_label.config(text=f"Loaded {len(self.edges_df)} edges.", fg="green")
+
+
+
+
+    def draw_graph(self):
+        if not hasattr(self, 'nodes_df') or not hasattr(self, 'edges_df') or self.nodes_df is None or self.edges_df is None:
+            self.status_label.config(text="No graph data loaded!", fg="red")
+            return
+
+        
+        graph_type = self.directness_var.get()
+        G = nx.DiGraph() if graph_type == "Directed" else nx.Graph()
+
+        labels = {}
+        # Add nodes & edges
+        for _, row in self.nodes_df.iterrows():
+            G.add_node(row['ID'])
+            labels[row['ID']] = str(row['ID'])
+
+        for _, row in self.edges_df.iterrows():
+            G.add_edge(row['Source'], row['Target'])
+        
+        self.G = G
+
+        # Layout selection
+        layout_choice = self.layout_var.get()
+        if layout_choice == "Fruchterman-Reingold":
+            pos = nx.spring_layout(G)
+        elif layout_choice == "Tree (Hierarchical)" :
+            try:
+                pos = nx.nx_agraph.graphviz_layout(G, prog='dot')
+            except:
+                print("Graphviz not installed, using spring layout as fallback.")
+                pos = nx.spring_layout(G)
+        elif layout_choice == "Radial Layout" :
+            pos = nx.shell_layout(G)
+        else:
+            pos = nx.spring_layout(G)
+
+        # Graph options
+        node_size = self.node_size.get()
+        node_color = self.node_color.get()
+        node_shape = self.node_shape.get()
+
+        edge_width = self.edge_width.get()
+        edge_color = self.edge_color.get()
+        edge_style = self.edge_style.get()
+
+        show_labels = self.show_labels.get()  
+        label_color = self.label_color.get()
+        label_size = self.label_size.get()
+
+
+        plt.figure(figsize=(10, 8))
+        
+
+        nx.draw_networkx_nodes(G, pos,
+                            node_size=node_size,
+                            node_color=node_color,
+                            node_shape=node_shape)
+
+
+        nx.draw_networkx_edges(G, pos,
+                            width=edge_width,
+                            edge_color=edge_color,
+                            style=edge_style,
+                            alpha=0.2)
+
+
+        if show_labels:
+            nx.draw_networkx_labels(G, pos,
+                                    labels=labels,
+                                    font_size=label_size,
+                                    font_color=label_color)
+
+        plt.axis('off')
+        plt.title(f"{layout_choice} Graph Visualization")
+        plt.show()
+
+        self.status_label.config(text="Graph drawn successfully!", fg="green")
+
+
+    def calculate_pagerank(self):
+        if not hasattr(self, 'nodes_df') or not hasattr(self, 'edges_df') or self.nodes_df is None or self.edges_df is None:
+            messagebox.showerror("Error", "No graph data loaded!")
+            return
+
+        # Create the graph
+        graph_type = self.directness_var.get()
+        if graph_type == "Directed":
+            G = nx.DiGraph()
+        else:
+            G = nx.Graph()
+
+
+        for _, row in self.nodes_df.iterrows():
+            G.add_node(row['ID'])
+
+        for _, row in self.edges_df.iterrows():
+            G.add_edge(row['Source'], row['Target'])
+
+        # Calculate PageRank
+        try:
+            pagerank_results = nx.pagerank(G)
+        except nx.PowerIterationFailedConvergence:
+            messagebox.showerror("Error", "PageRank did not converge!")
+            return
+
+        # Create a new window to display results
+        result_window = tk.Toplevel()
+        result_window.title("PageRank Results")
+
+        text_widget = tk.Text(result_window, wrap="word", width=60, height=20)
+        text_widget.pack(fill="both", expand=True)
+
+        pagerank_text = "\n".join(f"Node {node}: {rank:.4f}" for node, rank in pagerank_results.items())
+        text_widget.insert("1.0", pagerank_text)
+
+        text_widget.config(state="disabled")
+
+    
+    def calculate_centrality_safe(self):
+        if not hasattr(self, 'G') or self.G is None:
+            self.status_label.config(text="No graph loaded. Please draw a graph first.", fg="red")
+            return
+        calculate_centrality(self.G, self.output_dir)
+        self.status_label.config(text="Centrality calculated successfully!", fg="green")
+
+
+    def draw_centralities(self):
+        if not hasattr(self, 'G') or self.G is None:
+            self.status_label.config(text="No graph loaded. Please draw a graph first.", fg="red")
+            return
+        
+        centralities = calculate_centrality(self.G, self.output_dir)
+        filtered_G = draw_filtered_graph(self.minCentrality.get(), self.maxCentrality.get(), self.G, self.centralityVar.get())
+        if filtered_G is None or filtered_G.number_of_nodes() == 0:
+            self.status_label.config(text="No graph to display. Make sure to calculate centralities first.", fg="red")
+            return
+
+
+        graph_type = self.directness_var.get()
+        G = nx.DiGraph() if graph_type == "Directed" else nx.Graph()
+        # Add only existing nodes and edges from filtered_G
+        G.add_nodes_from(filtered_G.nodes(data=True))
+        G.add_edges_from(filtered_G.edges(data=True))
+
+        labels = {node: str(node) for node in G.nodes()}
+
+
+        # Graph options
+        node_color = self.node_color.get()
+        node_shape = self.node_shape.get()
+
+        edge_width = self.edge_width.get()
+        edge_color = self.edge_color.get()
+        edge_style = self.edge_style.get()
+
+        show_labels = self.show_labels.get()
+        label_color = self.label_color.get()
+        label_size = self.label_size.get()
+
+        #node sizes based on centralities values
+        centrality_type = self.centralityVar.get()
+        centrality_index = {"Degree Centrality": 1, "Closeness Centrality": 2, "Betweenness Centrality": 3}
+        index = centrality_index.get(centrality_type, 1)
+        centrality_dict = {entry[0]: entry[index] for entry in centralities if entry[0] in G.nodes()}
+        
+        min_size = 50  
+        max_size = 800 
+
+        centrality_values = list(centrality_dict.values())
+
+        min_c = min(centrality_values)
+        max_c = max(centrality_values)
+
+        node_sizes = [
+            min_size + (centrality_dict[node] - min_c) / (max_c - min_c) * (max_size - min_size)
+            for node in G.nodes()
+        ]
+
+        plt.figure(figsize=(14, 10))
+        pos = nx.spring_layout(G, k=0.5, iterations=50)
+
+        nx.draw_networkx_nodes(G, pos,
+                                node_size=node_sizes,
+                                node_color=node_color,
+                                node_shape=node_shape)
+
+        nx.draw_networkx_edges(G, pos,
+                                width=edge_width,
+                                edge_color=edge_color,
+                                style=edge_style,
+                                alpha=0.2)
+
+        if show_labels:
+            nx.draw_networkx_labels(G, pos,
+                                    labels=labels,
+                                    font_size=label_size,
+                                    font_color=label_color)
+
+        plt.axis('off')
+        plt.title(f"{self.centralityVar.get()} Filtered Graph Visualization")
+        plt.show()
+
+        self.status_label.config(text="Filtered Graph drawn successfully!", fg="green")
 
     def show_metrics(self):
         print(self.directness_var.get())

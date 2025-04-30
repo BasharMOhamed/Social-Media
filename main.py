@@ -7,6 +7,10 @@ from CentralityMeasures import calculate_centrality, draw_filtered_graph
 import community as community_louvain
 from networkx.algorithms.community import girvan_newman
 
+from networkx.algorithms.cuts import conductance
+from sklearn.metrics import normalized_mutual_info_score
+from networkx.algorithms.community.quality import modularity
+
 class NetworkApp:
     def __init__(self, root):
         self.root = root
@@ -171,8 +175,11 @@ class NetworkApp:
         tk.Button(clustering_frame, text="Draw Clustered Graph", command=self.draw_clustered_graph).grid(row=0,column=2, padx=5, pady=10)
 
 
-        tk.Button(clustering_frame, text="Calculate NMI", command="").grid(row=1,column=0, padx=5, pady=10)
+        # tk.Button(clustering_frame, text="Calculate NMI", command="").grid(row=1,column=0, padx=5, pady=10)
         # tk.Button(clustering_frame, text="Calculate Conductance", command="").grid(row=1,column=1, padx=5, pady=10)
+        self.stats_button = tk.Button(clustering_frame, text="Statistics", command=self.show_statistics).grid(row=1,column=0, padx=5, pady=10)
+
+
         tk.Button(clustering_frame, text="Compare Algorithms", command=self.compare_algorithms).grid(row=1,column=2, padx=5, pady=10)
 
 ####################################################################################################################################
@@ -372,47 +379,54 @@ class NetworkApp:
 
         if algo == "Girvan-Newman":
             from networkx.algorithms.community import girvan_newman
-            comp = girvan_newman(self.G)  # gets the first level of clusters
-            limited = tuple(sorted(c) for c in next(comp))
+            comp = girvan_newman(self.G)
+            desired_num_communities = 6  # Adjust as needed or make it user-configurable
+            for communities in comp:
+                if len(communities) >= desired_num_communities:
+                    limited = tuple(sorted(c) for c in communities)
+                    break
+            else:
+                limited = tuple(sorted(c) for c in communities)  # fallback to last state
+
             for idx, cluster in enumerate(limited):
                 for node in cluster:
                     partition[node] = idx
+
         elif algo == "Louvain":
             partition = community_louvain.best_partition(self.G)
+
         else:
             messagebox.showerror("Error", f"Unsupported algorithm: {algo}")
             return
 
         import matplotlib.pyplot as plt
 
-        plt.figure(figsize=(10, 8))  #
-
-        pos = nx.kamada_kawai_layout(self.G)  #
-
+        plt.figure(figsize=(10, 8))
+        pos = nx.kamada_kawai_layout(self.G)
         cmap = plt.get_cmap('tab20')
-        unique_clusters = list(set(partition.values()))  #
+        unique_clusters = list(set(partition.values()))
 
-        for cluster_id in unique_clusters:  #
-            nodes_in_cluster = [node for node in self.G.nodes() if partition[node] == cluster_id]  #
+        for cluster_id in unique_clusters:
+            nodes_in_cluster = [node for node in self.G.nodes() if partition[node] == cluster_id]
             nx.draw_networkx_nodes(
                 self.G,
                 pos,
                 nodelist=nodes_in_cluster,
-                node_size=300,  #
+                node_size=300,
                 node_color=[cmap(cluster_id % 20)],
                 label=f"Cluster {cluster_id}",
-                alpha=0.9  #
+                alpha=0.9
             )
 
-        nx.draw_networkx_edges(self.G, pos, alpha=0.3, edge_color='gray', width=1.2)  #
+        nx.draw_networkx_edges(self.G, pos, alpha=0.3, edge_color='gray', width=1.2)
 
         if self.show_labels.get():
             nx.draw_networkx_labels(self.G, pos, font_size=self.label_size.get(), font_color=self.label_color.get())
 
         plt.title(f"{algo} Clustering", fontsize=14, fontweight='bold')
         plt.axis('off')
-        plt.legend(loc='upper right')  #
-        plt.tight_layout()  #
+        plt.legend(loc='upper right')
+        plt.tight_layout()
         plt.show()
 
     def compare_algorithms(self):
@@ -424,13 +438,27 @@ class NetworkApp:
 
         # --- Girvan-Newman ---
         comp = girvan_newman(self.G)
-        communities_gn = tuple(sorted(c) for c in next(comp))
-        comparison.append(
-            f"Girvan-Newman:\n"
-            f"  Communities: {len(communities_gn)}\n"
-            f"  Modularity: \n"
-            f"  Conductance: "
-        )
+        desired_num_communities = 6
+        for communities in comp:
+            if len(communities) >= desired_num_communities:
+                communities_gn = tuple(sorted(c) for c in communities)
+                break
+
+        modularity_gn = modularity(self.G, communities_gn)
+        # Labels for NMI
+        labels_gn = {}
+        for i, comm in enumerate(communities_gn):
+            for node in comm:
+                labels_gn[node] = i
+
+        # modularity_gn = modularity(self.G, communities_gn)  # FIXED LINE
+        conductance_values_GN = []
+        for community in communities_gn:
+            other_nodes = set(self.G.nodes) - set(community)
+            if other_nodes:  # avoid zero-division error
+                cond = conductance(self.G, community, other_nodes)
+                conductance_values_GN.append(cond)
+        conductance_gn = sum(conductance_values_GN) / len(conductance_values_GN) if conductance_values_GN else 0.0
 
         # --- Louvain ---
         partition_louvain = community_louvain.best_partition(self.G)
@@ -438,17 +466,123 @@ class NetworkApp:
         for node, group in partition_louvain.items():
             communities_lv.setdefault(group, []).append(node)
         communities_lv_list = list(communities_lv.values())
+        modularity_lv = modularity(self.G, communities_lv_list)
+        # modularity_lv = community_louvain.modularity(self.G, partition_louvain)
 
+        conductance_values_L = []
+        for community in communities_lv_list:
+            other_nodes = set(self.G.nodes) - set(community)
+            if other_nodes:  # avoid zero-division error
+                cond = conductance(self.G, community, other_nodes)
+                conductance_values_L.append(cond)
+        conductance_lv = sum(conductance_values_L) / len(conductance_values_L) if conductance_values_L else 0.0
 
+        # --- NMI ---
+        nodes_sorted = sorted(self.G.nodes())
+        y_true = [labels_gn[n] for n in nodes_sorted]
+        y_pred = [partition_louvain[n] for n in nodes_sorted]
+        nmi = normalized_mutual_info_score(y_true, y_pred)
+
+        # --- Results ---
+        comparison.append(
+            f"Girvan-Newman:\n"
+            f"  Communities: {len(communities_gn)}\n"
+            f"  Modularity: {modularity_gn:.4f}\n"
+            f"  Conductance: {conductance_gn:.4f}"
+        )
 
         comparison.append(
             f"Louvain:\n"
             f"  Communities: {len(communities_lv_list)}\n"
-            f"  Modularity: \n"
-            f"  Conductance: "
+            f"  Modularity: {modularity_lv:.4f}\n"
+            f"  Conductance: {conductance_lv:.4f}"
         )
 
+        comparison.append(f"NMI (GN vs Louvain): {nmi:.4f}")
+
         messagebox.showinfo("Community Detection Comparison", "\n\n".join(comparison))
+
+    def show_statistics(self):
+        if self.G is None:
+            messagebox.showerror("Error", "Graph not created yet.")
+            return
+
+        algo = self.clusteringVar.get().strip() or "Girvan-Newman"
+        partition = {}
+        communities = []
+
+        if algo == "Girvan-Newman":
+            from networkx.algorithms.community import girvan_newman
+            comp = girvan_newman(self.G)
+            desired_num_communities = 6
+            for comm in comp:
+                if len(comm) >= desired_num_communities:
+                    communities = list(comm)
+                    break
+            else:
+                communities = list(comm)
+
+            for i, community in enumerate(communities):
+                for node in community:
+                    partition[node] = i
+
+        elif algo == "Louvain":
+            partition = community_louvain.best_partition(self.G)
+            communities_dict = {}
+            for node, group in partition.items():
+                communities_dict.setdefault(group, []).append(node)
+            communities = list(communities_dict.values())
+
+        else:
+            messagebox.showerror("Error", f"Unsupported algorithm: {algo}")
+            return
+
+        # Compute Modularity
+        mod = modularity(self.G, communities)
+
+        # Compute Conductance
+        conductance_vals = []
+        for community in communities:
+            other_nodes = set(self.G.nodes) - set(community)
+            if other_nodes:
+                cond = conductance(self.G, community, other_nodes)
+                conductance_vals.append(cond)
+        avg_conductance = sum(conductance_vals) / len(conductance_vals) if conductance_vals else 0.0
+
+        # NMI only if Girvan-Newman and Louvain are available
+        nmi_score = "N/A"
+        if algo == "Girvan-Newman":
+            # Compute Louvain for NMI comparison
+            lv_partition = community_louvain.best_partition(self.G)
+            lv_communities = {}
+            for node, group in lv_partition.items():
+                lv_communities.setdefault(group, []).append(node)
+            lv_communities_list = list(lv_communities.values())
+
+            # Make label dicts
+            labels_gn = {}
+            for i, comm in enumerate(communities):
+                for node in comm:
+                    labels_gn[node] = i
+            labels_lv = {}
+            for i, comm in enumerate(lv_communities_list):
+                for node in comm:
+                    labels_lv[node] = i
+
+            nodes_sorted = sorted(self.G.nodes())
+            y_true = [labels_gn[n] for n in nodes_sorted]
+            y_pred = [labels_lv[n] for n in nodes_sorted]
+            nmi_score = f"{normalized_mutual_info_score(y_true, y_pred):.4f}"
+
+        stats_text = (
+            f"Algorithm: {algo}\n"
+            f"Communities: {len(communities)}\n"
+            f"Modularity: {mod:.4f}\n"
+            f"Conductance: {avg_conductance:.4f}\n"
+            # f"NMI : {nmi_score}"
+        )
+
+        messagebox.showinfo("Clustering Statistics", stats_text)
 
 
 if __name__ == "__main__":

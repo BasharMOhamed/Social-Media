@@ -6,7 +6,6 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
 from CentralityMeasures import calculate_centrality, draw_filtered_graph, filtered_G, centralities
-
 class NetworkApp:
     def __init__(self, root):
         self.root = root

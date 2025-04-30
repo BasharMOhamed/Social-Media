@@ -366,46 +366,53 @@ class NetworkApp:
         if self.G is None:
             messagebox.showerror("Error", "Graph not created yet.")
             return
-        algo = self.clusteringVar.get().strip() or "Girvan-Newman"
 
+        algo = self.clusteringVar.get().strip() or "Girvan-Newman"
         partition = {}
 
         if algo == "Girvan-Newman":
             from networkx.algorithms.community import girvan_newman
-            comp = girvan_newman(self.G)
+            comp = girvan_newman(self.G)  # gets the first level of clusters
             limited = tuple(sorted(c) for c in next(comp))
             for idx, cluster in enumerate(limited):
                 for node in cluster:
                     partition[node] = idx
-
         elif algo == "Louvain":
             partition = community_louvain.best_partition(self.G)
-
         else:
             messagebox.showerror("Error", f"Unsupported algorithm: {algo}")
             return
 
-        # Draw graph with node colors based on clusters
         import matplotlib.pyplot as plt
 
-        plt.figure(figsize=(8, 6))
-        pos = nx.spring_layout(self.G)
-        cmap = plt.get_cmap('tab20')
+        plt.figure(figsize=(10, 8))  #
 
-        for node in self.G.nodes():
+        pos = nx.kamada_kawai_layout(self.G)  #
+
+        cmap = plt.get_cmap('tab20')
+        unique_clusters = list(set(partition.values()))  #
+
+        for cluster_id in unique_clusters:  #
+            nodes_in_cluster = [node for node in self.G.nodes() if partition[node] == cluster_id]  #
             nx.draw_networkx_nodes(
                 self.G,
                 pos,
-                nodelist=[node],
-                node_color=[cmap(partition[node] % 20)],
-                label=f"Cluster {partition[node]}"
+                nodelist=nodes_in_cluster,
+                node_size=300,  #
+                node_color=[cmap(cluster_id % 20)],
+                label=f"Cluster {cluster_id}",
+                alpha=0.9  #
             )
-        nx.draw_networkx_edges(self.G, pos, alpha=0.5)
+
+        nx.draw_networkx_edges(self.G, pos, alpha=0.3, edge_color='gray', width=1.2)  #
+
         if self.show_labels.get():
             nx.draw_networkx_labels(self.G, pos, font_size=self.label_size.get(), font_color=self.label_color.get())
 
-        plt.title(f"{algo} Clustering")
+        plt.title(f"{algo} Clustering", fontsize=14, fontweight='bold')
         plt.axis('off')
+        plt.legend(loc='upper right')  #
+        plt.tight_layout()  #
         plt.show()
 
     def compare_algorithms(self):

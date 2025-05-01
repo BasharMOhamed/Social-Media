@@ -375,41 +375,45 @@ class NetworkApp:
             self.status_label.config(text=f"Output directory: {dir_path}", fg="green")
 
     def draw_clustered_graph(self):
-        if self.G is None:
-            self.fill_graph()
-
+        # if self.G is None:
+        #     messagebox.showerror("Error", "Graph not created yet.")
+        #     return
+        self.fill_graph()
         algo = self.clusteringVar.get()
         partition = {}
-        communities = []
 
         if algo == "Girvan-Newman":
-            dendrogram = community_louvain.generate_dendrogram(self.G)
-            num_levels = len(dendrogram)
-
-            print(num_levels)
-            comp_gen = girvan_newman(self.G)
-
-            node_groups = []
-
-            for i in range(5):
-                comp = next(comp_gen)
-
-            comp = next(comp_gen)  # the desired split
-            communities = [list(c) for c in comp]
+            from networkx.algorithms.community import girvan_newman
+            comp = girvan_newman(self.G)
+            desired_num_communities = 6  # Adjust as needed or make it user-configurable
+            for communities in comp:
+                if len(communities) >= desired_num_communities:
+                    limited = tuple(sorted(c) for c in communities)
+                    break
+                else:
+                    limited = tuple(sorted(c) for c in communities)  # fallback to last state
+            for idx, cluster in enumerate(limited):
+                for node in cluster:
+                    partition[node] = idx
 
         elif algo == "Louvain":
             partition = community_louvain.best_partition(self.G)
-            communities = self.louvain_partition_to_list(partition)
+
+        else:
+            messagebox.showerror("Error", f"Unsupported algorithm: {algo}")
+            return
 
         plt.figure(figsize=(10, 8))
         pos = nx.kamada_kawai_layout(self.G)
         cmap = plt.get_cmap('tab20')
+        unique_clusters = list(set(partition.values()))
 
-        for cluster_id, nodes in enumerate(communities):
+        for cluster_id in unique_clusters:
+            nodes_in_cluster = [node for node in self.G.nodes() if partition[node] == cluster_id]
             nx.draw_networkx_nodes(
                 self.G,
                 pos,
-                nodelist=nodes,
+                nodelist=nodes_in_cluster,
                 node_size=300,
                 node_color=[cmap(cluster_id % 20)],
                 label=f"Cluster {cluster_id}",
@@ -421,7 +425,7 @@ class NetworkApp:
         if self.show_labels.get():
             nx.draw_networkx_labels(self.G, pos, font_size=self.label_size.get(), font_color=self.label_color.get())
 
-        plt.title("Louvain Clustering", fontsize=14, fontweight='bold')
+        plt.title(f"{algo} Clustering", fontsize=14, fontweight='bold')
         plt.axis('off')
         plt.legend(loc='upper right')
         plt.tight_layout()

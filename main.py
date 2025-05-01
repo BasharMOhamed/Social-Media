@@ -374,27 +374,10 @@ class NetworkApp:
 
 
     def calculate_pagerank(self):
-        if not hasattr(self, 'nodes_df') or not hasattr(self, 'edges_df') or self.nodes_df is None or self.edges_df is None:
-            messagebox.showerror("Error", "No graph data loaded!")
-            return
-
-        # Create the graph
-        graph_type = self.directness_var.get()
-        if graph_type == "Directed":
-            G = nx.DiGraph()
-        else:
-            G = nx.Graph()
-
-
-        for _, row in self.nodes_df.iterrows():
-            G.add_node(row['ID'])
-
-        for _, row in self.edges_df.iterrows():
-            G.add_edge(row['Source'], row['Target'])
-
+        self.fill_graph()
         # Calculate PageRank
         try:
-            pagerank_results = nx.pagerank(G)
+            pagerank_results = nx.pagerank(self.G)
         except nx.PowerIterationFailedConvergence:
             messagebox.showerror("Error", "PageRank did not converge!")
             return
@@ -411,13 +394,6 @@ class NetworkApp:
 
         text_widget.config(state="disabled")
 
-    
-    def calculate_centrality_safe(self):
-        if not hasattr(self, 'G') or self.G is None:
-            self.status_label.config(text="No graph loaded. Please draw a graph first.", fg="red")
-            return
-        calculate_centrality(self.G, self.output_dir)
-        self.status_label.config(text="Centrality calculated successfully!", fg="green")
 
 
     def draw_centralities(self):
@@ -570,29 +546,55 @@ class NetworkApp:
         if dir_path:
             self.output_dir = dir_path
             self.status_label.config(text=f"Output directory: {dir_path}", fg="green")
+    
+    def visualize_communities(self, partition, title):
+        fig, ax = plt.subplots(figsize=(10, 8))
+
+        pos = nx.spring_layout(self.G)
+
+        if isinstance(partition, list): 
+            node_to_comm = {}
+            for comm_id, comm in enumerate(partition):
+                for node in comm:
+                    node_to_comm[node] = comm_id
+            partition = node_to_comm
+
+        unique_comms = sorted(set(partition.values()))
+        comm_to_idx = {comm: idx for idx, comm in enumerate(unique_comms)}
+        colors = [comm_to_idx[partition[n]] for n in self.G.nodes()]
+
+        nodes = nx.draw_networkx_nodes(
+            self.G, pos,
+            node_color=colors,
+            cmap=plt.cm.viridis,
+            ax=ax,
+            node_size=50
+        )
+        nx.draw_networkx_edges(self.G, pos, ax=ax, alpha=0.2)
+
+        sm = plt.cm.ScalarMappable(
+            cmap=plt.cm.viridis,
+            norm=plt.Normalize(vmin=0, vmax=len(unique_comms) - 1))
+        sm.set_array([])
+
+        cbar = fig.colorbar(
+            sm,
+            ax=ax,
+            shrink=0.8,
+            ticks=range(len(unique_comms)),
+            label="Community ID"
+        )
+
+        ax.set_title(title)
+        plt.axis('off')
+        plt.show()
 
     def draw_clustered_graph(self):
         self.fill_graph()
         algo = self.clusteringVar.get()
         partition = {}
 
-
-
-        # return list(partitioned_graph)
-
         if algo == "Girvan-Newman":
-
-            # comp = girvan_newman(self.G)
-            # desired_num_communities = 6  # Adjust as needed or make it user-configurable
-            # for communities in comp:
-            #     if len(communities) >= desired_num_communities:
-            #         limited = tuple(sorted(c) for c in communities)
-            #         break
-            #     else:
-            #         limited = tuple(sorted(c) for c in communities)  # fallback to last state
-            # for idx, cluster in enumerate(limited):
-            #     for node in cluster:
-            #         partition[node] = idx
             communities = girvan_newman(self.G)
             partitioned_graph = []
             for k in range(6 - 1):
@@ -605,40 +607,12 @@ class NetworkApp:
         else:
             messagebox.showerror("Error", f"Unsupported algorithm: {algo}")
             return
-        print("girvan finished")
-        plt.figure(figsize=(10, 8))
-        pos = nx.kamada_kawai_layout(self.G)
-        cmap = plt.get_cmap('tab20')
-        unique_clusters = list(set(partition.values()))
 
-        for cluster_id in unique_clusters:
-            nodes_in_cluster = [node for node in self.G.nodes() if partition[node] == cluster_id]
-            nx.draw_networkx_nodes(
-                self.G,
-                pos,
-                nodelist=nodes_in_cluster,
-                node_size=300,
-                node_color=[cmap(cluster_id % 20)],
-                label=f"Cluster {cluster_id}",
-                alpha=0.9
-            )
-
-        nx.draw_networkx_edges(self.G, pos, alpha=0.3, edge_color='gray', width=1.2)
-
-        if self.show_labels.get():
-            nx.draw_networkx_labels(self.G, pos, font_size=self.label_size.get(), font_color=self.label_color.get())
-
-        plt.title(f"{algo} Clustering", fontsize=14, fontweight='bold')
-        plt.axis('off')
-        plt.legend(loc='upper right')
-        plt.tight_layout()
-        plt.show()
+        self.visualize_communities(partition, f"{algo} Community Detection")
+       
 
     def compare_algorithms(self):
-        if self.G is None:
-            self.fill_graph()
-            return
-
+        self.fill_graph()
         comparison = []
 
         # --- Girvan-Newman ---
@@ -656,14 +630,13 @@ class NetworkApp:
             for node in comm:
                 labels_gn[node] = i
 
-        # modularity_gn = modularity(self.G, communities_gn)  # FIXED LINE
         conductance_values_GN = []
         for community in communities_gn:
             other_nodes = set(self.G.nodes) - set(community)
             if other_nodes:  # avoid zero-division error
                 cond = conductance(self.G, community, other_nodes)
                 conductance_values_GN.append(cond)
-        conductance_values_GN = [conductance(self.G, set(c)) for c in communities_gn]
+        conductance_values_GN = sum(conductance(self.G, set(c)) for c in communities_gn) / len(communities_gn)
 
         # --- Louvain ---
         partition_louvain = community_louvain.best_partition(self.G)
@@ -672,7 +645,6 @@ class NetworkApp:
             communities_lv.setdefault(group, []).append(node)
         communities_lv_list = list(communities_lv.values())
         modularity_lv = modularity(self.G, communities_lv_list)
-        # modularity_lv = community_louvain.modularity(self.G, partition_louvain)
 
         conductance_values_L = []
         for community in communities_lv_list:
@@ -680,8 +652,7 @@ class NetworkApp:
             if other_nodes:  # avoid zero-division error
                 cond = conductance(self.G, community, other_nodes)
                 conductance_values_L.append(cond)
-        conductance_lv = [conductance(self.G, set(c)) for c in communities_lv_list]
-
+        conductance_lv = sum(conductance(self.G, set(c)) for c in communities_lv_list) / len(communities_lv_list)
 
         # --- NMI ---
         nodes_sorted = sorted(self.G.nodes())
@@ -708,16 +679,15 @@ class NetworkApp:
 
         messagebox.showinfo("Community Detection Comparison", "\n\n".join(comparison))
 
-
     def calculate_centrality(self):
-    
-        if self.G is None:
-            self.fill_graph()
+        
+        self.fill_graph()
 
         degree_centrality = nx.degree_centrality(self.G)
 
-        closeness_centrality = nx.closeness_centrality(self.G)
+        closeness_centrality = nx.closeness_centrality(self.G,wf_improved=False)
 
+        #betweenness_centrality = nx.betweenness_centrality(self.G,normalized=False)
         betweenness_centrality = nx.betweenness_centrality(self.G)
         for node in self.G:
             self.centralities.append([
@@ -732,8 +702,7 @@ class NetworkApp:
 
     def draw_filtered_graph(self):
     
-        if self.G is None:
-            self.fill_graph()
+        self.fill_graph()
 
         filtered_G = self.G
         if self.centralityVar == 'Degree' and self.centralities != []:
@@ -762,9 +731,8 @@ class NetworkApp:
 
 
     def show_statistics(self):
-        if self.G is None:
-            self.fill_graph()
-            return
+        self.fill_graph()
+            
 
         algo = self.clusteringVar.get().strip() or "Girvan-Newman"
         partition = {}

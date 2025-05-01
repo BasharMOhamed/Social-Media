@@ -3,9 +3,9 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 import networkx as nx
 import pandas as pd
-from CentralityMeasures import calculate_centrality, draw_filtered_graph
-import community as community_louvain
+import community.community_louvain as community_louvain
 from networkx.algorithms.community import girvan_newman
+import csv
 
 from networkx.algorithms.cuts import conductance
 from sklearn.metrics import normalized_mutual_info_score
@@ -21,6 +21,8 @@ class NetworkApp:
         self.G = None
         self.nodes_df = None
         self.edges_df = None
+        self.centralities = []
+        self.filtered_G = None
 
         # GUI Layout
         self.create_widgets()
@@ -140,13 +142,13 @@ class NetworkApp:
         tk.Button(
             button_frame,
             text="Draw Filtered Graph",
-            command=lambda: draw_filtered_graph(self.minCentrality.get(), self.maxCentrality.get(), self.G, self.centralityVar.get())
+            command=self.draw_filtered_graph
         ).pack(side=tk.LEFT, padx=2)
 
         tk.Button(
             button_frame,
             text="Calculate Centrality",
-            command=lambda: calculate_centrality(self.G, self.output_dir)
+            command=self.calculate_centrality
         ).pack(side=tk.LEFT, padx=2)
 
         tk.Button(
@@ -301,8 +303,7 @@ class NetworkApp:
             self.edges_df = pd.read_csv(file_path)
             self.status_label.config(text=f"Loaded {len(self.edges_df)} edges.", fg="green")
 
-    def show_metrics(self):
-        print(self.directness_var.get())
+    def fill_graph(self):
         if self.nodes_df is not None and self.edges_df is not None:
                 if self.directness_var.get() == "Directed":
                     self.G = nx.DiGraph()
@@ -317,6 +318,9 @@ class NetworkApp:
         else:
             messagebox.showerror("Error", "Graph not created yet.")
             return
+
+    def show_metrics(self):
+        self.fill_graph()
 
         num_nodes = self.G.number_of_nodes()
         num_edges = self.G.number_of_edges()
@@ -371,26 +375,36 @@ class NetworkApp:
 
     def draw_clustered_graph(self):
         if self.G is None:
-            messagebox.showerror("Error", "Graph not created yet.")
-            return
+            self.fill_graph()
 
         algo = self.clusteringVar.get().strip() or "Girvan-Newman"
         partition = {}
 
         if algo == "Girvan-Newman":
+            print('here')
             from networkx.algorithms.community import girvan_newman
-            comp = girvan_newman(self.G)
-            desired_num_communities = 6  # Adjust as needed or make it user-configurable
-            for communities in comp:
-                if len(communities) >= desired_num_communities:
-                    limited = tuple(sorted(c) for c in communities)
-                    break
-            else:
-                limited = tuple(sorted(c) for c in communities)  # fallback to last state
+            import matplotlib.pyplot as plt
+            dendrogram = community_louvain.generate_dendrogram(self.G)
+            num_levels = len(dendrogram)
 
-            for idx, cluster in enumerate(limited):
-                for node in cluster:
-                    partition[node] = idx
+            print(num_levels)
+            communities = girvan_newman(self.G)
+            
+            node_groups = []
+
+            for i in range(0,num_levels):
+             comp = next(communities)
+
+            community_dict = {}
+
+            for i, group in enumerate(comp):
+                print('group ',group)
+                community_dict[i] = [int(node) for node in group]
+
+            # for com in comp:
+            #     node_groups.append(list(com))
+
+            # print(node_groups)
 
         elif algo == "Louvain":
             partition = community_louvain.best_partition(self.G)
@@ -399,23 +413,22 @@ class NetworkApp:
             messagebox.showerror("Error", f"Unsupported algorithm: {algo}")
             return
 
-        import matplotlib.pyplot as plt
 
         plt.figure(figsize=(10, 8))
         pos = nx.kamada_kawai_layout(self.G)
         cmap = plt.get_cmap('tab20')
-        unique_clusters = list(set(partition.values()))
+        # unique_clusters = list(set(partition.values()))
 
-        for cluster_id in unique_clusters:
-            nodes_in_cluster = [node for node in self.G.nodes() if partition[node] == cluster_id]
-            nx.draw_networkx_nodes(
-                self.G,
-                pos,
-                nodelist=nodes_in_cluster,
-                node_size=300,
-                node_color=[cmap(cluster_id % 20)],
-                label=f"Cluster {cluster_id}",
-                alpha=0.9
+        # for cluster_id in unique_clusters:
+        #     nodes_in_cluster = [node for node in self.G.nodes() if partition[node] == cluster_id]
+        nx.draw_networkx_nodes(
+                    self.G,
+                    pos,
+                    nodelist=community_dict,
+                    node_size=300,
+                    node_color=['red','blue','green','yellow'],
+                    label=f"Cluster ",
+                    alpha=0.9
             )
 
         nx.draw_networkx_edges(self.G, pos, alpha=0.3, edge_color='gray', width=1.2)
@@ -431,7 +444,7 @@ class NetworkApp:
 
     def compare_algorithms(self):
         if self.G is None:
-            messagebox.showerror("Error", "Graph not created yet.")
+            self.fill_graph()
             return
 
         comparison = []
@@ -458,7 +471,7 @@ class NetworkApp:
             if other_nodes:  # avoid zero-division error
                 cond = conductance(self.G, community, other_nodes)
                 conductance_values_GN.append(cond)
-        conductance_gn = sum(conductance_values_GN) / len(conductance_values_GN) if conductance_values_GN else 0.0
+        conductance_values_GN = [conductance(self.G, set(c)) for c in communities_gn]
 
         # --- Louvain ---
         partition_louvain = community_louvain.best_partition(self.G)
@@ -475,7 +488,8 @@ class NetworkApp:
             if other_nodes:  # avoid zero-division error
                 cond = conductance(self.G, community, other_nodes)
                 conductance_values_L.append(cond)
-        conductance_lv = sum(conductance_values_L) / len(conductance_values_L) if conductance_values_L else 0.0
+        conductance_lv = [conductance(self.G, set(c)) for c in communities_lv_list]
+
 
         # --- NMI ---
         nodes_sorted = sorted(self.G.nodes())
@@ -502,9 +516,62 @@ class NetworkApp:
 
         messagebox.showinfo("Community Detection Comparison", "\n\n".join(comparison))
 
+
+    def calculate_centrality(self):
+    
+        if self.G is None:
+            self.fill_graph()
+
+        degree_centrality = nx.degree_centrality(self.G)
+
+        closeness_centrality = nx.closeness_centrality(self.G)
+
+        betweenness_centrality = nx.betweenness_centrality(self.G)
+        for node in self.G:
+            self.centralities.append([
+                node,
+                degree_centrality[node],
+                closeness_centrality[node],
+                betweenness_centrality[node]
+            ])
+
+        self.write_centrality_in_file()
+
+
+    def draw_filtered_graph(self):
+    
+        if self.G is None:
+            self.fill_graph()
+
+        filtered_G = self.G
+        if self.centralityVar == 'Degree' and self.centralities != []:
+            for subArray in self.centralities:
+                if self.minCentrality > subArray[1] or subArray[1] > self.maxCentrality:
+                    filtered_G.remove_node(subArray[0])
+
+        if  self.centralityVar == 'Closeness' and self.centralities != []:
+            for subArray in self.centralities:
+                if self.minCentrality > subArray[2] or subArray[2] > self.maxCentrality:
+                    filtered_G.remove_node(subArray[0])
+
+        if  self.centralityVar == 'Betweenness' and self.centralities != []:
+            for subArray in self.centralities:
+                if self.minCentrality > subArray[3] or subArray[3] > self.maxCentrality:
+                    filtered_G.remove_node(subArray[0])
+
+
+    def write_centrality_in_file(self):
+        with open(self.output_dir, mode='w', newline='') as file:
+            writer = csv.writer(file)
+            writer.writerow(["Nodes", 'Degree_centrality', "Closeness_centrality", 'Betweenness_centrality'])
+            writer.writerows(self.centralities)
+
+        print(f"CSV file created at {self.output_dir}")
+
+
     def show_statistics(self):
         if self.G is None:
-            messagebox.showerror("Error", "Graph not created yet.")
+            self.fill_graph()
             return
 
         algo = self.clusteringVar.get().strip() or "Girvan-Newman"

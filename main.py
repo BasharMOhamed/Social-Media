@@ -10,6 +10,7 @@ import csv
 from networkx.algorithms.cuts import conductance
 from sklearn.metrics import normalized_mutual_info_score
 from networkx.algorithms.community.quality import modularity
+import matplotlib.pyplot as plt
 
 class NetworkApp:
     def __init__(self, root):
@@ -377,58 +378,42 @@ class NetworkApp:
         if self.G is None:
             self.fill_graph()
 
-        algo = self.clusteringVar.get().strip() or "Girvan-Newman"
+        algo = self.clusteringVar.get()
         partition = {}
+        communities = []
 
         if algo == "Girvan-Newman":
-            print('here')
-            from networkx.algorithms.community import girvan_newman
-            import matplotlib.pyplot as plt
             dendrogram = community_louvain.generate_dendrogram(self.G)
             num_levels = len(dendrogram)
 
             print(num_levels)
-            communities = girvan_newman(self.G)
-            
+            comp_gen = girvan_newman(self.G)
+
             node_groups = []
 
-            for i in range(0,num_levels):
-             comp = next(communities)
+            for i in range(5):
+                comp = next(comp_gen)
 
-            community_dict = {}
-
-            for i, group in enumerate(comp):
-                print('group ',group)
-                community_dict[i] = [int(node) for node in group]
-
-            # for com in comp:
-            #     node_groups.append(list(com))
-
-            # print(node_groups)
+            comp = next(comp_gen)  # the desired split
+            communities = [list(c) for c in comp]
 
         elif algo == "Louvain":
             partition = community_louvain.best_partition(self.G)
-
-        else:
-            messagebox.showerror("Error", f"Unsupported algorithm: {algo}")
-            return
-
+            communities = self.louvain_partition_to_list(partition)
 
         plt.figure(figsize=(10, 8))
         pos = nx.kamada_kawai_layout(self.G)
         cmap = plt.get_cmap('tab20')
-        # unique_clusters = list(set(partition.values()))
 
-        # for cluster_id in unique_clusters:
-        #     nodes_in_cluster = [node for node in self.G.nodes() if partition[node] == cluster_id]
-        nx.draw_networkx_nodes(
-                    self.G,
-                    pos,
-                    nodelist=community_dict,
-                    node_size=300,
-                    node_color=['red','blue','green','yellow'],
-                    label=f"Cluster ",
-                    alpha=0.9
+        for cluster_id, nodes in enumerate(communities):
+            nx.draw_networkx_nodes(
+                self.G,
+                pos,
+                nodelist=nodes,
+                node_size=300,
+                node_color=[cmap(cluster_id % 20)],
+                label=f"Cluster {cluster_id}",
+                alpha=0.9
             )
 
         nx.draw_networkx_edges(self.G, pos, alpha=0.3, edge_color='gray', width=1.2)
@@ -436,7 +421,7 @@ class NetworkApp:
         if self.show_labels.get():
             nx.draw_networkx_labels(self.G, pos, font_size=self.label_size.get(), font_color=self.label_color.get())
 
-        plt.title(f"{algo} Clustering", fontsize=14, fontweight='bold')
+        plt.title("Louvain Clustering", fontsize=14, fontweight='bold')
         plt.axis('off')
         plt.legend(loc='upper right')
         plt.tight_layout()
@@ -502,7 +487,7 @@ class NetworkApp:
             f"Girvan-Newman:\n"
             f"  Communities: {len(communities_gn)}\n"
             f"  Modularity: {modularity_gn:.4f}\n"
-            f"  Conductance: {conductance_gn:.4f}"
+            f"  Conductance: {conductance_values_GN:.4f}"
         )
 
         comparison.append(

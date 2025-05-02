@@ -3,7 +3,6 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 import networkx as nx
 import pandas as pd
-from CentralityMeasures import calculate_centrality, draw_filtered_graph, filtered_G, centralities
 import community.community_louvain as community_louvain
 from networkx.algorithms.community import girvan_newman
 import csv
@@ -400,10 +399,12 @@ class NetworkApp:
         if not hasattr(self, 'G') or self.G is None:
             self.status_label.config(text="No graph loaded. Please draw a graph first.", fg="red")
             return
-        
-        centralities = calculate_centrality(self.G, self.output_dir)
-        filtered_G = draw_filtered_graph(self.minCentrality.get(), self.maxCentrality.get(), self.G, self.centralityVar.get())
-        if filtered_G is None or filtered_G.number_of_nodes() == 0:
+
+        # centralities = self.calculate_centrality()
+        # filtered_G = self.draw_filtered_graph()
+        self.calculate_centrality()
+        self.draw_filtered_graph()
+        if self.filtered_G is None or self.filtered_G.number_of_nodes() == 0:
             self.status_label.config(text="No graph to display. Make sure to calculate centralities first.", fg="red")
             return
 
@@ -411,8 +412,8 @@ class NetworkApp:
         graph_type = self.directness_var.get()
         G = nx.DiGraph() if graph_type == "Directed" else nx.Graph()
         # Add only existing nodes and edges from filtered_G
-        G.add_nodes_from(filtered_G.nodes(data=True))
-        G.add_edges_from(filtered_G.edges(data=True))
+        G.add_nodes_from(self.filtered_G.nodes(data=True))
+        G.add_edges_from(self.filtered_G.edges(data=True))
 
         labels = {node: str(node) for node in G.nodes()}
 
@@ -433,7 +434,7 @@ class NetworkApp:
         centrality_type = self.centralityVar.get()
         centrality_index = {"Degree Centrality": 1, "Closeness Centrality": 2, "Betweenness Centrality": 3}
         index = centrality_index.get(centrality_type, 1)
-        centrality_dict = {entry[0]: entry[index] for entry in centralities if entry[0] in G.nodes()}
+        centrality_dict = {entry[0]: entry[index] for entry in self.centralities if entry[0] in G.nodes()}
         
         min_size = 50  
         max_size = 800 
@@ -516,8 +517,6 @@ class NetworkApp:
             avg_in_degree = sum(in_degrees) / num_nodes
             avg_out_degree = sum(out_degrees) / num_nodes
             metrics.extend([
-                f"In-Degree: {sum(in_degrees)}",
-                f"Out-Degree: {sum(out_degrees)}",
                 f"Average In-Degree: {avg_in_degree:.2f}",
                 f"Average Out-Degree: {avg_out_degree:.2f}"
             ])
@@ -704,21 +703,21 @@ class NetworkApp:
     
         self.fill_graph()
 
-        filtered_G = self.G
+        self.filtered_G = self.G
         if self.centralityVar == 'Degree' and self.centralities != []:
             for subArray in self.centralities:
                 if self.minCentrality > subArray[1] or subArray[1] > self.maxCentrality:
-                    filtered_G.remove_node(subArray[0])
+                    self.filtered_G.remove_node(subArray[0])
 
         if  self.centralityVar == 'Closeness' and self.centralities != []:
             for subArray in self.centralities:
                 if self.minCentrality > subArray[2] or subArray[2] > self.maxCentrality:
-                    filtered_G.remove_node(subArray[0])
+                    self.filtered_G.remove_node(subArray[0])
 
         if  self.centralityVar == 'Betweenness' and self.centralities != []:
             for subArray in self.centralities:
                 if self.minCentrality > subArray[3] or subArray[3] > self.maxCentrality:
-                    filtered_G.remove_node(subArray[0])
+                    self.filtered_G.remove_node(subArray[0])
 
 
     def write_centrality_in_file(self):
